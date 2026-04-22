@@ -1,0 +1,5 @@
+celltype,grouping1,grouping2
+T_cell:CD4+,Naive,Sensitive
+T_cell:Other,Naive,Sensitive
+Epithelial_cells,Naive,Sensitive
+T_cell:CD8+,Naive,Sensitive

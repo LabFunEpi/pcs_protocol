@@ -24,9 +24,10 @@ library(patchwork)
 
 register(SerialParam()) 
 register(SnowParam(workers = 4))
-all_genes <- keys(org.Hs.eg.db, keytype = "SYMBOL")
 
-#### part A: read data and prep Seurat object ####
+
+# part A: read data and prep Seurat object 
+
 mat = open_matrix_10x_hdf5("data/counts_10x.h5", feature_type = "Peaks")
 md = read_csv("data/metadata.csv")
 chrom_assay = CreateChromatinAssay(counts = mat, sep = c("-", "-"))
@@ -35,9 +36,10 @@ obj$celltype = md$celltype
 obj$grouping1 = md$grouping1
 obj$grouping2 = md$grouping2
 obj = obj %>% RunTFIDF() %>% FindTopFeatures(min.cutoff = 20) %>% RunSVD()
+
 saveRDS(obj, "data/seurat_obj.rds")
 
-#### part B: Prepare ReMap data ####
+# part B: Prepare ReMap data
 # download remap BED file from https://remap.univ-amu.fr/download_page and extract it (outside R) and place in data folder
 # cd data
 # gunzip remap2022_nr_macs2_hg38_v1_0.bed.gz
@@ -47,7 +49,8 @@ saveRDS(obj, "data/seurat_obj.rds")
 # OPTIONAL: additions to remap BED file (peaks in addons.bed)
 # cat remap2022_nr_macs2_hg38_v1_0_MOD_clean.bed addons.bed | sort -k1,1 -k2,2n > myremap.bed
 
-#### part C: create remap assay (OPTIONAL - if not doing this, continue with filtered <- readRDS("seurat_obj.rds") in part D) ####
+#### part C: create remap assay #### 
+#(OPTIONAL - if not doing this, continue with obj <- readRDS("seurat_obj.rds") in part D)
 # first set up genome stuff
 genome <- BSgenome.Hsapiens.UCSC.hg38
 keepBSgenomeSequences <- function(genome, seqnames) {
@@ -84,11 +87,12 @@ TF_features <- TF_features[lengths(TF_features) > 0]
 # add TF_features as an assay in the seurat object
 obj <- AddChromatinModule(obj, features = TF_features, 
                                genome = genome, assay = "ATAC")
-remapscores <- obj@meta.data %>% select(starts_with("remap-")) %>% t()
+
+remapscores <- obj@meta.data %>% dplyr::select(starts_with("remap-")) %>% t()
 rownames(remapscores) <- str_sub(rownames(remapscores), 7L, -1L)
 obj[["remap"]] <- CreateAssayObject(data = remapscores)
-obj@meta.data <- obj@meta.data %>% select(!starts_with("remap-"))
-saveRDS(obj, "data/seurat_obj_remap.rds")
+obj@meta.data <- obj@meta.data %>% dplyr::select(!starts_with("remap-"))
+saveRDS(obj, "data/seurat_obj.rds")
 
 
 #### part D: defining the PCS from the atac assay####
@@ -103,7 +107,7 @@ setMethod("seqinfo", signature(x = "ChromatinAssay"), function(x) {
 })
 
 # load seurat object
-obj <- readRDS("data/seurat_obj_remap.rds")
+obj <- readRDS("data/seurat_obj.rds")
 DefaultAssay(obj) <- "ATAC"
 # subset to celltype of interest
 Tumor_Epi <- subset(obj, subset = celltype == "Epithelial_cells")
@@ -111,7 +115,6 @@ Tumor_Epi <- subset(obj, subset = celltype == "Epithelial_cells")
 # get differentially accessible peaks for both comparisons
 daps_NaiveNACT <- FindMarkers(Tumor_Epi, ident.1 = "NACT", ident.2 = "Naive",min.pct = 0 , group.by = "grouping1") %>% rownames_to_column("peak")
 write.table(daps_NaiveNACT, "results/daps_NACT_vs_Naive.tsv",  sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
-
 daps_SensRes <- FindMarkers(Tumor_Epi, ident.1 = "Resistant", ident.2 = "Sensitive",min.pct = 0 , group.by = "grouping2") %>% rownames_to_column("peak")
 write.table(daps_SensRes, "results/daps_Resistant_vs_Sensitive.tsv",  sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
 
@@ -124,14 +127,15 @@ length(setdiff(ResiSens_P, NACTNaiv_P))
 patient_PCS_peaks <- base::intersect(NACTNaiv_P, ResiSens_P)
 write.table(data.frame(peak = patient_PCS_peaks) %>% separate(peak, c("chr", "start", "end"), sep = "-") %>% arrange(chr, as.numeric(start)), "results/patient_PCS_peaks.bed", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
 
-#### part E: run ReMapEnrich on the EPS peaks to identify enriched DNA binding factors ####
+#### part E: run ReMapEnrich on the PCS peaks to identify enriched DNA binding factors ####
 library(ReMapEnrich)
 library(GenomicRanges)
 library(Signac)
-
+all_genes <- keys(org.Hs.eg.db, keytype = "SYMBOL")
 remapCatalog <- bedToGranges("data/myremap.bed")
 set.seed(1)
 en <- enrichment(patient_PCS_peaks %>% StringToGRanges(), remapCatalog, chromSizes = loadChromSizes("hg38"), byChrom = FALSE)
+
 temp <- data.frame(en) %>% drop_na() %>% arrange(-`q.significance`) %>% filter(category %in% all_genes)
 plotdata <- temp %>% mutate(category = factor(category, levels = temp$category)) %>% mutate(rn = row_number())
 patient_PCS_factors <- plotdata %>% pull(category)  %>% as.character()
@@ -156,7 +160,7 @@ Tumor_Epi_rna <- subset(rna_obj, subset = celltype == "Epithelial_cells")
 
 
 # Calculate the percentage of NACT tumor cells that express each gene
-NACT_perc_expr <- enframe(rowSums(Tumor_Epi_rna$RNA$counts[,which(Tumor_Epi_rna$grouping1 == "NACT")] > 0) * 100 / sum(Tumor_Epi_rna$grouping1 == "NACT")) # WMI
+NACT_perc_expr <- enframe(rowSums(Tumor_Epi_rna$RNA$counts[,which(Tumor_Epi_rna$grouping1 == "NACT")] > 0) * 100 / sum(Tumor_Epi_rna$grouping1 == "NACT")) 
 # Get top 100 expressed PCS factors from the top 120 chromatin-enriched PCS factors
 patient_PCS_factors_rna <- NACT_perc_expr %>% filter(name %in% patient_PCS_factors_120) %>% arrange(-value) %>% head(n = 100) %>% pull(name)
 
@@ -167,8 +171,7 @@ length(setdiff(patient_PCS_factors_rna, pcs_paper_factors))
 length(base::intersect(patient_PCS_factors_rna, pcs_paper_factors))
 
 
-
-####part F: visualization####
+####part G: visualization####
 library(ggplot2)
 library(cowplot)
 library(patchwork)
@@ -236,7 +239,7 @@ p2 <- ggplot(temp1, aes(x = effect_size, y = neg_log10_adj_pval)) +
   theme(axis.title = element_blank()) +
   labs(
     title = "Differentially accessible peaks",
-    x     = expression("Avg" ~-log[2] ~ "(adj. p-value)"),
+    x     = expression("Avg" ~-log[2] ~ "fold change"),
     y     = expression(-log[10] ~ "(adj. p-value)")
   )+
   theme_classic(base_size = 12) +
@@ -272,7 +275,7 @@ p3 <- ggplot(temp1, aes(x = effect_size, y = neg_log10_adj_pval)) +
   theme(axis.title = element_blank()) +
   labs(
     title = "Differentially accessible peaks",
-    x     = expression("Avg" ~-log[2] ~ "(adj. p-value)"),
+    x     = expression("Avg" ~-log[2] ~ "fold change"),
     y     = expression(-log[10] ~ "(adj. p-value)")
   )+
   theme_classic(base_size = 12) +
@@ -292,6 +295,10 @@ panel <- plot_grid(
   label_size = 12
 )
 ggsave("plots/figure_panel.tiff", plot = panel, width = 14, height = 5, units = "in")
+
+
+
+
 
 #### part H: Add PCS as a module score for each cell####
 Tumor_Epi <- AddModuleScore(
